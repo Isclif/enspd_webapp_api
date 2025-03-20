@@ -113,8 +113,8 @@ class ListEtudiantsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not request.user.status == "Professeur" and not request.user.is_superuser == True:
-            return Response({'error': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
+        # if not request.user.status == "Professeur" and not request.user.is_superuser == True:
+        #     return Response({'error': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
 
         users = UserMember.objects.filter(status="Etudiant")
         serializer = ListEtudiantsProfesseursSerializer(users, many=True)
@@ -124,8 +124,8 @@ class ListProfesseursAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not request.user.is_superuser:
-            return Response({'error': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
+        # if not request.user.is_superuser:
+        #     return Response({'error': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
 
         users = UserMember.objects.filter(status="Professeur")
         serializer = ListEtudiantsProfesseursSerializer(users, many=True)
