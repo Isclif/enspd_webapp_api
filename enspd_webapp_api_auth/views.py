@@ -2,13 +2,28 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import get_user_model, authenticate
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.models import Group
+from rest_framework.decorators import api_view, permission_classes
+from django.shortcuts import get_object_or_404
 
-from enspd_webapp_api_auth.serializer import UserMemberSerializer, UserMemberSerializerLogin, ListEtudiantsProfesseursSerializer
+from enspd_webapp_api_auth.serializer import ( 
+    UserMemberSerializer, 
+    UserMemberSerializerLogin, 
+    ListEtudiantsProfesseursSerializer,
+    CourseSerializer,
+    EnrollmentSerializer,
+    ResultSerializer,
+    ContentSerializer,
+    DepartmentSerializer,
+    SpecialitySerializer,
+    ActivityRepportSerializer,
+    DepartmentSerializerList
+)
 
 
 from rest_framework import status
 from rest_framework.views import APIView
-from enspd_webapp_api_auth.models import UserMember
+from enspd_webapp_api_auth.models import UserMember, Department, Course, Enrollment, Result, Content, Speciality, ActivityReport
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -17,7 +32,32 @@ from django.contrib.auth.models import Permission
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
+from .permissions import IsDepartmentHead, IsInstructor, IsStudent
+
 UserMember = get_user_model()
+
+# def is_user_in_group(user_id, group_name):
+#     user = UserMember.objects.get(id=user_id)
+#     return user.groups.filter(name=group_name).exists()
+
+class UserInfoView(APIView):
+    """
+    View to retrieve user information from the token.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response({"success": True, "data":{
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "is_superuser": user.is_superuser,
+            "is_staff": user.is_staff
+        }}, status=status.HTTP_200_OK)
+    
 
 class RegisterAPIView(APIView):
     def post(self, request):
@@ -98,8 +138,9 @@ class AddPermissionsAPIView(APIView):
         user.save()
         return Response({'success': 'Permissions added successfully'}, status=status.HTTP_200_OK)
 
-class ListUsersAPIView(APIView):
+class UsersAPIView(APIView):
     permission_classes = [IsAuthenticated]
+
 
     def get(self, request):
         if not request.user.is_superuser:
@@ -109,7 +150,7 @@ class ListUsersAPIView(APIView):
         serializer = UserMemberSerializer(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-class ListEtudiantsAPIView(APIView):
+class EtudiantsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -120,7 +161,7 @@ class ListEtudiantsAPIView(APIView):
         serializer = ListEtudiantsProfesseursSerializer(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
-class ListProfesseursAPIView(APIView):
+class ProfesseursAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -130,3 +171,319 @@ class ListProfesseursAPIView(APIView):
         users = UserMember.objects.filter(status="Professeur")
         serializer = ListEtudiantsProfesseursSerializer(users, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+class CourseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk=None):
+        user = request.user
+
+        if pk:
+            instance = get_object_or_404(Course, pk=pk)
+
+            # Check permission
+            # self.check_object_permissions(request, instance)
+
+            serializer = CourseSerializer(instance)
+            return Response({"success": True, "data":serializer.data}, status=status.HTTP_200_OK)
+        else:
+
+            # Vérifier si l'utilisateur est un admin
+            if user.is_superuser:
+                # Un admin peut voir tous les cours
+                courses = Course.objects.all()
+            elif IsDepartmentHead().has_permission(request, self):
+                # Le chef de département peut voir tous les cours de son département
+                department = Department.objects.filter(head=user).first()
+                courses = Course.objects.filter(instructor=department.head)
+            elif IsInstructor().has_permission(request, self):
+                # L'enseignant ne peut voir que ses propres cours
+                courses = Course.objects.filter(instructor=user)
+            elif user.status == "Etudiant":
+                courses = Course.objects.all()
+            else:
+                return Response({"error": "Unauthorized"}, status=403)
+
+            serializer = CourseSerializer(courses, many=True)
+            return Response(serializer.data)
+
+    def post(self, request):
+        # Seul le chef de département et les admins peuvent créer un cours
+        if not (request.user.is_superuser or IsDepartmentHead().has_permission(request, self)):
+            return Response({"error": "Only department heads and admin can create courses"}, status=403)
+
+        serializer = CourseSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+
+
+class EnrollmentView(APIView):
+    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated, IsStudent]
+
+    def post(self, request):
+        # Inscription d'un étudiant à un cours
+        course_id = request.data.get('course_id')
+        student = request.user
+
+        if student.status != "Etudiant":
+            return Response({"message": "Unauthorize to register to a course with a non student account"}, status=403)
+
+        if not course_id:
+            return Response({"error": "Course ID is required"}, status=400)
+
+        try:
+            course = Course.objects.get(pk=course_id)
+        except Course.DoesNotExist:
+            return Response({"error": "Course not found"}, status=404)
+
+        enrollment, created = Enrollment.objects.get_or_create(student=student, course=course)
+        if created:
+            return Response({"message": "Enrollment successful"}, status=201)
+        return Response({"message": "Already enrolled"}, status=200)
+
+    def get(self, request):
+        # Liste des cours auxquels l'étudiant est inscrit
+        student = request.user
+        enrollments = Enrollment.objects.filter(student=student)
+        serializer = EnrollmentSerializer(enrollments, many=True)
+        return Response(serializer.data)
+    
+
+class ResultView(APIView):
+    permission_classes = [IsAuthenticated, IsStudent | IsInstructor]
+
+    def get(self, request, pk=None):
+        user = request.user
+
+        if IsStudent().has_permission(request, self):
+            # Un étudiant ne peut voir que ses propres résultats
+            results = Result.objects.filter(student=user)
+        elif IsInstructor().has_permission(request, self):
+            # Un enseignant peut voir les résultats des étudiants inscrits à ses cours
+            instructor_courses = Course.objects.filter(instructor=user)
+            results = Result.objects.filter(evaluation__course__in=instructor_courses)
+        else:
+            return Response({"error": "Unauthorized"}, status=403)
+
+        serializer = ResultSerializer(results, many=True)
+        return Response(serializer.data)
+
+
+class ContentCourseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, course_id):
+        user = request.user
+
+        # Récupérer le cours spécifié par course_id
+        try:
+            course = Course.objects.get(id=course_id)
+        except Course.DoesNotExist:
+            return Response({"error": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Vérifier si l'utilisateur est l'enseignant assigné à ce cours
+        if not (user.is_superuser or (course.instructor == user)):
+            return Response({"error": "Only the assigned instructor or admin can create content for this course"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Ajouter le cours au contenu
+        # request.data['course'] = course.id
+
+        # Sérialiser les données reçues
+        serializer = ContentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request, pk=None):
+        user = request.user
+
+        if pk:
+            instance = get_object_or_404(Content, pk=pk)
+
+            # Check permission
+            # self.check_object_permissions(request, instance)
+
+            serializer = ContentSerializer(instance)
+            return Response({"success": True, "data":serializer.data}, status=status.HTTP_200_OK)
+        else:
+
+            # Vérifier si l'utilisateur est un admin
+            if user.is_superuser:
+                # Un admin peut voir tous les contenus de cours
+                contents = Content.objects.all()
+            elif IsDepartmentHead().has_permission(request, self):
+                # Le chef de département peut voir tous les contenus de cours
+                # department = Department.objects.get(head=user)
+                contents = Content.objects.all()
+            # elif IsInstructor().has_permission(request, self):
+            #     # L'enseignant ne peut voir que ses propres cours
+            #     courses = Course.objects.filter(instructor=user).first()
+            #     contents = Content.objects.filter(course=courses.id)
+            elif user.status == "Etudiant":
+                contents = Content.objects.all()
+            else:
+                return Response({"error": "Unauthorized"}, status=403)
+
+            serializer = ContentSerializer(contents, many=True)
+            return Response(serializer.data)
+    
+    def patch(self, request, pk):
+        user = request.user
+
+        content = get_object_or_404(Content, pk=pk)
+
+        # Vérifier si l'utilisateur est l'enseignant assigné à ce cours
+        print("content.course.instructor", content.course.instructor)
+        if not (user.is_superuser or (content.course.instructor == user)):
+            return Response(
+                {"error": "Only the assigned instructor or admin can update content for this course"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Sérialiser les données reçues avec partial=True pour permettre des mises à jour partielles
+        serializer = ContentSerializer(content, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class DepartmentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+
+        # Vérifier si l'utilisateur est un admin ou un chef de département
+        if not (user.is_superuser or IsDepartmentHead().has_permission(request, self)):
+            return Response({"error": "Only admins or department heads can create departments"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Sérialiser les données reçues
+        serializer = DepartmentSerializer(data=request.data)
+        if serializer.is_valid():
+            # Assigner automatiquement le chef du département (si ce n'est pas un admin)
+            if not user.is_superuser:
+                serializer.validated_data['head'] = user  # Le créateur devient le chef du département
+            serializer.save()
+
+            # Récupérer le groupe
+            group_name = "DepartmentHead"
+            group, created = Group.objects.get_or_create(name=group_name)
+
+            user_head = UserMember.objects.filter(username=serializer.validated_data['head']).first()
+
+            # # Ajouter l'utilisateur au groupe
+            user_head.groups.add(group)
+            user_head.save()
+
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request, pk=None):
+        # Liste departements
+
+        if pk:
+            instance = get_object_or_404(Department, pk=pk)
+
+            # Check permission
+            # self.check_object_permissions(request, instance)
+
+            serializer = DepartmentSerializerList(instance)
+            return Response({"success": True, "data":serializer.data}, status=status.HTTP_200_OK)
+        else:
+            departments = Department.objects.all()
+            serializer = DepartmentSerializerList(departments, many=True)
+            return Response(serializer.data)
+            # return Response(
+            #     {
+            #         "success": True,
+            #         "data": paginated_response.data,
+            #     },
+            #     status=status.HTTP_200_OK
+            # )
+    
+class SpecialityView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+
+        # Vérifier si l'utilisateur est un admin ou un chef de département
+        if not (user.is_superuser or IsDepartmentHead().has_permission(request, self)):
+            return Response({"error": "Only admins or department heads can create specialities"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Sérialiser les données reçues
+        serializer = SpecialitySerializer(data=request.data)
+        if serializer.is_valid():
+            # Assigner automatiquement le chef du département (si ce n'est pas un admin)
+            # if not user.is_superuser:
+            #     serializer.validated_data['head'] = user  # Le créateur devient le chef du département
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request):
+        # Liste departements
+        departments = Speciality.objects.all()
+        serializer = SpecialitySerializer(departments, many=True)
+        return Response(serializer.data)
+
+
+class ActivityRepportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+
+        if not (user.status == "Professeur" or user.status == "ChefDepartement"):
+            return Response({"error": "Only admins or department heads can create activity reports"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Sérialiser les données reçues
+        serializer = ActivityRepportSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.validated_data['user'] = user 
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request):
+        # Liste rapports d'activités
+        activity_repports = ActivityReport.objects.all()
+        serializer = SpecialitySerializer(activity_repports, many=True)
+        return Response(serializer.data)
+
+class AddUserToGroup(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def post(request):
+        # Récupérer les données de la requête
+        user_id = request.data.get('user_id')
+        group_name = request.data.get('group_name')
+
+        if not request.user.is_superuser:
+            return Response({"error": "Unauthorized, only for superuser"}, status=403)
+
+        if not user_id or not group_name:
+            return Response({"error": "Les champs 'user_id' et 'group_name' sont requis."}, status=400)
+
+        try:
+            user = UserMember.objects.get(id=user_id)
+        except UserMember.DoesNotExist:
+            return Response({"error": "L'utilisateur spécifié n'existe pas."}, status=404)
+
+        # Récupérer le groupe
+        group, created = Group.objects.get_or_create(name=group_name)
+
+        # Ajouter l'utilisateur au groupe
+        user.groups.add(group)
+        user.save()
+
+        return Response({"message": f"L'utilisateur {user.username} a été ajouté au groupe {group_name}."})
+
+
+# @api_view(['POST'])
+# @permission_classes([IsAuthenticated])

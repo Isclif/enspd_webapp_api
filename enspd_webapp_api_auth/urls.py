@@ -1,13 +1,40 @@
 from django.urls import path
-from .views import AddPermissionsAPIView, ListEtudiantsAPIView, ListProfesseursAPIView, ListUsersAPIView, RegisterAPIView, CustomTokenObtainPairView
+from .views import ( 
+    AddPermissionsAPIView, 
+    EtudiantsAPIView, 
+    ProfesseursAPIView, 
+    UsersAPIView, 
+    RegisterAPIView, 
+    CustomTokenObtainPairView,
+    EnrollmentView,
+    CourseView,
+    ResultView,
+    DepartmentView,
+    ContentCourseView,
+    DepartmentView,
+    UserInfoView,
+    SpecialityView,
+    ActivityRepportView
+)
 from rest_framework_simplejwt.views import TokenRefreshView
 
 urlpatterns = [
+    path('user_info/', UserInfoView.as_view(), name='user_info'),
     path('register/', RegisterAPIView.as_view(), name='register'),
     path('login/', CustomTokenObtainPairView.as_view(), name='login'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('add-permissions/', AddPermissionsAPIView.as_view(), name='add_permissions'),
-    path('list-users/', ListUsersAPIView.as_view(), name='list_users'),
-    path('list-etudiants/', ListEtudiantsAPIView.as_view(), name='list_etudiants'),
-    path('list-professeurs/', ListProfesseursAPIView.as_view(), name='list_professeurs'),
+    path('add-permissions/', AddPermissionsAPIView.as_view(), name='add_permissions'), 
+    path('users/', UsersAPIView.as_view(), name='manage_users'),
+    path('etudiants/', EtudiantsAPIView.as_view(), name='manage_etudiants'),
+    path('professeurs/', ProfesseursAPIView.as_view(), name='manage_professeurs'),
+    path('departments/', DepartmentView.as_view(), name='manage_department'),
+    path('departments/<uuid:pk>/', DepartmentView.as_view(), name='manage_department_id'),
+    path('courses/', CourseView.as_view(), name='manage_course'),
+    path('courses/<uuid:pk>/', CourseView.as_view(), name='manage_course_id'),
+    path('content_courses/<uuid:course_id>/', ContentCourseView.as_view(), name='create_content_course'),
+    path('content_courses_detail/<uuid:pk>/', ContentCourseView.as_view(), name='get_content_course'),
+    path('enrollments/', EnrollmentView.as_view(), name='manage_enrollment'),
+    path('student_results/', ResultView.as_view(), name='manage_student_result'),
+    path('specialities/', SpecialityView.as_view(), name='manage_speciality'),
+    path('activity_repports/', ActivityRepportView.as_view(), name='manage_activity_repports'),
 ]
