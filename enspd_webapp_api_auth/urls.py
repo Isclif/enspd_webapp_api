@@ -14,7 +14,9 @@ from .views import (
     DepartmentView,
     UserInfoView,
     SpecialityView,
-    ActivityRepportView
+    ActivityRepportView,
+    EvaluationView,
+    QuestionsView
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -35,6 +37,14 @@ urlpatterns = [
     path('content_courses_detail/<uuid:pk>/', ContentCourseView.as_view(), name='get_content_course'),
     path('enrollments/', EnrollmentView.as_view(), name='manage_enrollment'),
     path('student_results/', ResultView.as_view(), name='manage_student_result'),
+    path('student_results/<uuid:pk>/', ResultView.as_view(), name='manage_student_result_by_id'),
+    path('evaluations/', EvaluationView.as_view(), name='manage_evaluations'),
+    path('evaluations/<uuid:pk>/', EvaluationView.as_view(), name='manage_evaluations_by_id'),
+    path('evaluations_create/<uuid:course_id>/', EvaluationView.as_view(), name='create_evaluations_by_course'),
+    path('questions/', QuestionsView.as_view(), name='manage_questions'),
+    path('questions_create/<uuid:course_id>/', QuestionsView.as_view(), name='create_questions_by_id'),
+    path('questions/<uuid:pk>/', QuestionsView.as_view(), name='manage_questions_by_id'),
     path('specialities/', SpecialityView.as_view(), name='manage_speciality'),
+    path('specialities/<uuid:pk>/', SpecialityView.as_view(), name='manage_speciality_by_id'),
     path('activity_repports/', ActivityRepportView.as_view(), name='manage_activity_repports'),
 ]

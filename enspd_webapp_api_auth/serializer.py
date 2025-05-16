@@ -130,22 +130,69 @@ class CourseSerializer(serializers.ModelSerializer):
             "name": obj.speciality.name,
             "dept_name": obj.speciality.department.name
         }
-
-
-class EvaluationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Evaluation
-        fields = '__all__'
+    
 
 class QuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
         fields = '__all__'
 
-class ResultSerializer(serializers.ModelSerializer):
+
+class EvaluationResultSerializer(serializers.ModelSerializer):
+    questions = QuestionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Evaluation
+        fields = ['id', 'title', 'description', 'course', 'type', 'autor', 'date_line', 'duration', 'allow_retake', 'show_correct_answers', 'created_at', 'questions']
+
+
+class ResultCreateSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Result
-        fields = '__all__'
+        fields = ['id', 'evaluation', 'score', 'completed', 'submitted_at', 'started_at', 'duration']
+
+class ResultSerializer(serializers.ModelSerializer):
+    evaluation = EvaluationResultSerializer(read_only=True)
+
+    class Meta:
+        model = Result
+        fields = ['id', 'student', 'evaluation', 'score', 'completed', 'submitted_at', 'started_at', 'duration', 'responses']
+    
+    # def get_evaluation_data(self, obj):
+    #     return {
+    #         "id": obj.evaluation.id,
+    #         "name": obj.evaluation.title,
+    #         'type':obj.evaluation.type,
+    #         'description':obj.evaluation.description,
+    #         'date_line':obj.evaluation.date_line,
+    #         "duration": obj.evaluation.duration,
+    #         "autor": obj.evaluation.autor.username,
+    #         "created_at": obj.evaluation.created_at,
+    #     } 
+
+    # def validate_student(self, value):
+    #     """
+    #     Validates display student.
+    #     """
+
+    #     evaluation = self.initial_data.get('evaluation')
+
+    #     # permission_name = value
+    #     if not value:
+    #         raise serializers.ValidationError("display name cannot be empty")
+    #     if Result.objects.filter(student=value, evaluation=evaluation).exists():
+    #         raise serializers.ValidationError("this user already registered to this evaluation")
+    #     return value
+
+class EvaluationSerializer(serializers.ModelSerializer):
+    questions = QuestionSerializer(many=True, read_only=True)
+    evaluation_results = ResultSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Evaluation
+        fields = ['id', 'title', 'description', 'course', 'type', 'autor', 'date_line', 'duration', 'allow_retake', 'show_correct_answers', 'created_at', 'questions', 'evaluation_results']
+
         
 
 class ActivityRepportSerializer(serializers.ModelSerializer):

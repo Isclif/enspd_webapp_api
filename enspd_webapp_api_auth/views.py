@@ -5,8 +5,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import Group
 from rest_framework.decorators import api_view, permission_classes
 from django.shortcuts import get_object_or_404
+from rest_framework.exceptions import ValidationError
+from django.db import IntegrityError
 
 from enspd_webapp_api_auth.serializer import ( 
+    ResultCreateSerializer,
     UserMemberSerializer, 
     UserMemberSerializerLogin, 
     ListEtudiantsProfesseursSerializer,
@@ -17,13 +20,15 @@ from enspd_webapp_api_auth.serializer import (
     DepartmentSerializer,
     SpecialitySerializer,
     ActivityRepportSerializer,
-    DepartmentSerializerList
+    DepartmentSerializerList, 
+    EvaluationSerializer,
+    QuestionSerializer
 )
 
 
 from rest_framework import status
 from rest_framework.views import APIView
-from enspd_webapp_api_auth.models import UserMember, Department, Course, Enrollment, Result, Content, Speciality, ActivityReport
+from enspd_webapp_api_auth.models import UserMember, Department, Course, Enrollment, Result, Content, Speciality, ActivityReport, Evaluation, Question
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -270,6 +275,207 @@ class ResultView(APIView):
 
         serializer = ResultSerializer(results, many=True)
         return Response(serializer.data)
+    
+    def post(self, request):
+        user = request.user
+
+        # # Récupérer le cours spécifié par course_id
+        # try:
+        #     course = Course.objects.get(id=course_id)
+        # except Course.DoesNotExist:
+        #     return Response({"error": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Vérifier si l'utilisateur est l'enseignant assigné à ce cours
+        if not (user.status == "Etudiant"):
+            return Response({"error": "Only student can pass this evaluation"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Ajouter le cours au contenu
+        # request.data['course'] = course.id
+
+        # Sérialiser les données reçues
+        serializer = ResultCreateSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            evaluation = serializer.validated_data['evaluation']
+
+            try:
+
+                existing_result = Result.objects.filter(student=user, evaluation=evaluation).first()
+
+                print("connected_user", user)
+                # print("existing_result", existing_result)
+
+                if existing_result:
+                    # raise ValidationError("Cet étudiant est déjà inscrit à cette évaluation.")
+                    return Response({
+                        'detail': 'Cet étudiant est déjà inscrit à cette évaluation.',
+                        'result_id': existing_result.id,
+                        'evaluation_id': existing_result.evaluation.id
+                    }, status=status.HTTP_409_CONFLICT)
+                
+                serializer.save(student=user)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            except IntegrityError:
+                # Une autre requête a créé le même Result en parallèle
+                existing_result = Result.objects.filter(student=user, evaluation=evaluation).first()
+                return Response({
+                    'detail': 'Cet étudiant est déjà inscrit à cette évaluation.',
+                    'result_id': existing_result.id if existing_result else None,
+                    'evaluation_id': existing_result.evaluation.id
+                }, status=status.HTTP_409_CONFLICT)
+
+            # existing_result = Result.objects.filter(student=user, evaluation=evaluation).first()
+
+            # print("existing_result", existing_result)
+
+            # if existing_result:
+            #     # raise ValidationError("Cet étudiant est déjà inscrit à cette évaluation.")
+            #     return Response({
+            #         'detail': 'Cet étudiant est déjà inscrit à cette évaluation.',
+            #         'result_id': existing_result.id,
+            #         'evaluation_id': existing_result.evaluation.id
+            #     }, status=status.HTTP_409_CONFLICT)
+            
+            # serializer.save(student=user)
+            # return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request, pk):
+        user = request.user
+
+        result_eval = get_object_or_404(Result, pk=pk)
+
+        if not (user.status == "Etudiant"):
+            return Response({"error": "Only student can update this evaluation"}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Sérialiser les données reçues avec partial=True pour permettre des mises à jour partielles
+        serializer = ResultSerializer(result_eval, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class EvaluationView(APIView):
+    permission_classes = [IsAuthenticated, IsStudent | IsInstructor]
+
+    def get(self, request, pk=None):
+        user = request.user
+
+        if IsStudent().has_permission(request, self):
+            # Un étudiant ne peut voir que ses propres résultats
+            courses = Enrollment.objects.filter(student=user).values_list('course', flat=True)
+            results = Evaluation.objects.filter(course__in=courses)
+        elif IsInstructor().has_permission(request, self):
+            # Un enseignant peut voir les résultats des étudiants inscrits à ses cours
+            instructor_courses = Course.objects.filter(instructor=user)
+            results = Evaluation.objects.filter(course__in=instructor_courses)
+        else:
+            return Response({"error": "Unauthorized"}, status=403)
+
+        serializer = EvaluationSerializer(results, many=True)
+        return Response(serializer.data)
+    
+    def post(self, request, course_id):
+        user = request.user
+
+        # Récupérer le cours spécifié par course_id
+        try:
+            course = Course.objects.get(id=course_id)
+        except Course.DoesNotExist:
+            return Response({"error": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Vérifier si l'utilisateur est l'enseignant assigné à ce cours
+        if not (course.instructor == user):
+            return Response({"error": "Only the assigned instructor can create evaluation"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Ajouter le cours au contenu
+        # request.data['course'] = course.id
+
+        # Sérialiser les données reçues
+        serializer = EvaluationSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(autor=user, course=course)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def patch(self, request, pk):
+        user = request.user
+
+        evaluation = get_object_or_404(Evaluation, pk=pk)
+
+        if not (evaluation.course.instructor == user):
+            return Response(
+                {"error": "Only the assigned instructor can update evaluation"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Sérialiser les données reçues avec partial=True pour permettre des mises à jour partielles
+        serializer = EvaluationSerializer(evaluation, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class QuestionsView(APIView):
+    permission_classes = [IsAuthenticated, IsStudent | IsInstructor]
+
+    def get(self, request, pk=None):
+        user = request.user
+
+        # if IsStudent().has_permission(request, self):
+        #     # Un étudiant ne peut voir que ses propres résultats
+        #     courses = Enrollment.objects.filter(student=user).values_list('course', flat=True)
+        #     results = Question.objects.filter(evaluation__course__in=courses)
+        if IsInstructor().has_permission(request, self):
+            # Un enseignant peut voir les résultats des étudiants inscrits à ses cours
+            instructor_courses = Course.objects.filter(instructor=user)
+            results = Question.objects.filter(evaluation__course__in=instructor_courses)
+        else:
+            return Response({"error": "Unauthorized"}, status=403)
+
+        serializer = QuestionSerializer(results, many=True)
+        return Response(serializer.data)
+    
+    def post(self, request, course_id):
+        user = request.user
+
+        # Récupérer le cours spécifié par course_id
+        try:
+            course = Course.objects.get(id=course_id)
+        except Course.DoesNotExist:
+            return Response({"error": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Vérifier si l'utilisateur est l'enseignant assigné à ce cours
+        if not (user.is_superuser or (course.instructor == user)):
+            return Response({"error": "Only the assigned instructor or admin can create questions on an evaluation"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Ajouter le cours au contenu
+        # request.data['course'] = course.id
+
+        # Sérialiser les données reçues
+        serializer = QuestionSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def patch(self, request, pk):
+        user = request.user
+
+        question = get_object_or_404(Question, pk=pk)
+
+        if not ((question.evaluation.course.instructor == user)):
+            return Response(
+                {"error": "Only the assigned instructor or admin can update questions"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Sérialiser les données reçues avec partial=True pour permettre des mises à jour partielles
+        serializer = QuestionSerializer(question, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ContentCourseView(APIView):
