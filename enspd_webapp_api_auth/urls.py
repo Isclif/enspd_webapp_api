@@ -18,15 +18,17 @@ from .views import (
     EvaluationView,
     QuestionsView
 )
-from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView, TokenBlacklistView
 
 urlpatterns = [
     path('user_info/', UserInfoView.as_view(), name='user_info'),
     path('register/', RegisterAPIView.as_view(), name='register'),
     path('login/', CustomTokenObtainPairView.as_view(), name='login'),
+    path('logout/', TokenBlacklistView.as_view(), name='token_blacklist'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('add-permissions/', AddPermissionsAPIView.as_view(), name='add_permissions'), 
     path('users/', UsersAPIView.as_view(), name='manage_users'),
+
     path('etudiants/', EtudiantsAPIView.as_view(), name='manage_etudiants'),
     path('professeurs/', ProfesseursAPIView.as_view(), name='manage_professeurs'),
     path('departments/', DepartmentView.as_view(), name='manage_department'),

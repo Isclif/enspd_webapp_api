@@ -154,10 +154,11 @@ class ResultCreateSerializer(serializers.ModelSerializer):
 
 class ResultSerializer(serializers.ModelSerializer):
     evaluation = EvaluationResultSerializer(read_only=True)
+    student_name = serializers.CharField(source='student.username')
 
     class Meta:
         model = Result
-        fields = ['id', 'student', 'evaluation', 'score', 'completed', 'submitted_at', 'started_at', 'duration', 'responses']
+        fields = ['id', 'student', 'evaluation', 'student_name', 'score', 'completed', 'submitted_at', 'started_at', 'duration', 'responses']
     
     # def get_evaluation_data(self, obj):
     #     return {
@@ -188,6 +189,7 @@ class ResultSerializer(serializers.ModelSerializer):
 class EvaluationSerializer(serializers.ModelSerializer):
     questions = QuestionSerializer(many=True, read_only=True)
     evaluation_results = ResultSerializer(many=True, read_only=True)
+    # course_name = serializers.CharField(source='course.name')
 
     class Meta:
         model = Evaluation
